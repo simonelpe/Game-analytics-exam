@@ -39,29 +39,7 @@ def load_data() -> pd.DataFrame:
     game_sales = pd.read_csv(DATA_DIR)
     return game_sales
 
-def apply_filters(
-    df: pd.DataFrame,
-    year_start: int,
-    year_end: int,
-    platform: str, 
-    genre: str,
-    ranked_by: str,
-) -> pd.DataFrame:
-    
-    df_filtered = df.copy()
-
-    if platform:
-        df_filtered = df_filtered[df_filtered["Platform"].isin(platform)]
-
-    if genre:
-        df_filtered = df_filtered[df_filtered["Genre"].isin(genre)]
-
-    df_filtered = df_filtered[df_filtered["Year_of_Release"].between(year_start, year_end)]
-
-    df_filtered.sort_values(ranked_by, ascending=False, inplace=True)
-
-    return df_filtered
-
+# ----TRAIN MODEL----
 @st.cache_resource
 def train_model(df: pd.DataFrame,  max_depth, min_samples_leaf):
     """
