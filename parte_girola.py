@@ -104,4 +104,46 @@ col1, col2 = st.columns(2)
 col1.metric("Accuracy su train", f"{metrics['acc_train']:.2%}")
 col2.metric("Accuracy su test", f"{metrics['acc_test']:.2%}")
 
+dx, sx = st.columns(2)
 
+fig = px.scatter(
+    df,
+    x='Critic_Score',
+    y='Global_Sales',
+    color_discrete_sequence=['blue'],
+    labels={'Critic_Score':'Critic Score', 'Global_Sales':'Global Sales (milioni)'},
+    title='Impatto delle Recensioni sul Successo Commerciale',
+    hover_data=['Name','Platform']
+)
+
+# Aggiungiamo anche User_Score nello stesso grafico
+fig2 = px.scatter(
+    df,
+    x='User_Score',
+    y='Global_Sales',
+    color_discrete_sequence=['orange'],
+    hover_data=['Name','Platform']
+)
+
+dx, sx = st.columns(2)
+with dx:
+    st.plotly_chart(fig, use_container_width=True)
+with sx:
+    st.plotly_chart(fig2, use_container_width=True)
+
+threshold = df['Global_Sales'].quantile(0.95)
+df_filtered = df[df['Global_Sales'] <= threshold]
+
+# Box plot interattivo senza outlier estremi
+fig_rating = px.box(
+    df_filtered,
+    x='Rating',
+    y='Global_Sales',
+    points='all',  # mostra anche tutti i punti
+    color='Rating',
+    title='Distribuzione delle Vendite Globali per Rating (outlier rimossi)',
+    labels={'Global_Sales':'Global Sales (milioni)', 'Rating':'Rating'}
+)
+
+# Mostra il grafico su Streamlit
+st.plotly_chart(fig_rating, use_container_width=True)
