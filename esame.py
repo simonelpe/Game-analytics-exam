@@ -138,8 +138,6 @@ if not df.empty:
         print(df["Year_of_Release"].unique())
         st.header("Filtri grafici")
 
-        st.header("Filtri base")
-
         year_min = int(df["Year_of_Release"].min())
         year_max = int(df["Year_of_Release"].max())
         platform_list = sorted(df["Platform"].unique())
@@ -219,7 +217,7 @@ if not df.empty:
     # Creazione delle tab
     tab_grafici, tab_modello = st.tabs(["📊 Pagina 1: Grafici", "🤖 Pagina 2: Modello"])
 
-    # Contenuto Tab 1
+    # TAB 1
     with tab_grafici:
         st.header("Sezione Grafici")
 
@@ -291,13 +289,105 @@ if not df.empty:
         genre_area.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
         col_d.plotly_chart(genre_area, use_container_width=True)
 
-    # Contenuto Tab 2
+    # TAB 2
     with tab_modello:
         st.subheader("Metriche del modello")
 
         col1, col2 = st.columns(2)
         col1.metric("Accuracy su train", f"{metrics['acc_train']:.2%}")
         col2.metric("Accuracy su test", f"{metrics['acc_test']:.2%}")
+
+        st.markdown("---")
+        st.subheader("🧪 Simula il successo di un nuovo gioco")
+
+        # Form per l'input
+        cols = st.columns(3)
+        user_input = {}
+
+        # Iteriamo sulle colonne delle feature per creare i widget
+        for i, col_name in enumerate(FEATURE_COLS):
+            # Recuperiamo la serie dal dataframe originale per limiti e valori
+            serie = df[col_name]
+            label = FEATURE_LABELS.get(col_name, col_name)
+
+            with cols[i % 3]:
+                # Se la colonna contiene numeri (float o int)
+                if pd.api.types.is_numeric_dtype(serie):
+                    min_val = float(serie.min())
+                    max_val = float(serie.max())
+                    default = float(serie.median())
+                    
+                    user_input[col_name] = st.number_input(
+                        label,
+                        min_value=min_val,
+                        max_value=max_val,
+                        value=default,
+                        key=f"in_{col_name}" # key univoca per evitare errori Streamlit
+                    )
+                # Se la colonna è categorica (testo/oggetto)
+                else:
+                    options = sorted(serie.astype(str).unique())
+                    user_input[col_name] = st.selectbox(
+                        label,
+                        options=options,
+                        index=0,
+                        key=f"in_{col_name}"
+                    )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if st.button("Predici Successo"):
+            # 1. Creiamo un DataFrame con l'input dell'utente
+            input_df = pd.DataFrame([user_input])
+
+            # 2. Dobbiamo trasformare le categorie in dummy variables (One-Hot Encoding)
+            #    esattamente come fatto nel training.
+            input_encoded = pd.get_dummies(input_df, drop_first=True)
+
+            # 3. Allineiamo le colonne a quelle che il modello si aspetta.
+            #    Il modello ha 'imparato' specifiche colonne dummy (es. Genre_Sports).
+            #    Se l'utente inserisce un genere nuovo o diverso, dobbiamo assicurarci
+            #    che le colonne coincidano, riempiendo con 0 quelle mancanti.
+            
+            # model.feature_names_in_ contiene i nomi delle colonne usate in fit()
+            try:
+                expected_cols = model.feature_names_in_
+                input_encoded = input_encoded.reindex(columns=expected_cols, fill_value=0)
+                
+                # 4. Predizione
+                prediction = model.predict(input_encoded)[0]
+                proba = model.predict_proba(input_encoded)[0]
+                
+                # Troviamo l'indice della classe predetta per mostrare la % corretta
+                # Le classi sono ['Flop', 'Mid', 'Hit'] (in ordine alfabetico o definito dal cut)
+                classes = model.classes_
+                pred_index = list(classes).index(prediction)
+                confidence = proba[pred_index]
+
+                # 5. Output grafico
+                st.markdown("---")
+                col_res1, col_res2 = st.columns(2)
+                
+                # Colore dinamico in base al risultato
+                if prediction == "Hit":
+                    color_delta = "normal" 
+                    icon = "🔥"
+                elif prediction == "Mid":
+                    color_delta = "off"
+                    icon = "😐"
+                else:
+                    color_delta = "inverse"
+                    icon = "💀"
+
+                col_res1.metric("Previsione Modello", f"{icon} {prediction}")
+                col_res2.metric("Confidenza (Probabilità)", f"{confidence:.1%}")
+
+                with st.expander("Dettagli Input JSON"):
+                    pretty_input = {FEATURE_LABELS.get(k, k): v for k, v in user_input.items()}
+                    st.json(pretty_input)
+
+            except AttributeError:
+                st.error("Il modello non sembra essere stato addestrato correttamente o la versione di scikit-learn è obsoleta (manca feature_names_in_).")
 
 else:
     st.write("Impossibile caricare i dati.")
