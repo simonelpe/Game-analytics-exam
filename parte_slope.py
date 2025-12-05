@@ -1,216 +1,331 @@
-from pathlib import Path
-import matplotlib.pyplot as plt
+import streamlit as st
 import pandas as pd
 import plotly.express as px
+import matplotlib.pyplot as plt
 import seaborn as sns
-import streamlit as st
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
-st.set_page_config(page_title="Games Analysis", layout="wide")
+# --- CONFIGURAZIONE PAGINA ---
+st.set_page_config(page_title="Game Sales Executive Dashboard", layout="wide", page_icon="🎮")
 
-DATA_DIR = Path("vgsales_clean.csv")
+# --- UTILS & DATA LOADING ---
 
 @st.cache_data
-def load_data() -> pd.DataFrame:
-    df = pd.read_csv(DATA_DIR)
+def load_and_clean_data():
+    df = pd.read_csv('data.csv')
 
-    # Pulizia Dati
-    # Gestione 'tbd' in User_Score e conversione a numerico
-    df['User_Score'] = pd.to_numeric(df['User_Score'], errors='coerce')
-    
-    # Rimuoviamo righe senza anno per i grafici temporali
-    df = df.dropna(subset=['Year_of_Release'])
+    # 1. Pulizia di base
+    df = df.dropna(subset=['Year_of_Release', 'Name'])
     df['Year_of_Release'] = df['Year_of_Release'].astype(int)
     
-    # Creiamo colonna Target per ML: HIT se vendite >= 1M
+    # Conversione User_Score in numerico (gestione 'tbd')
+    df['User_Score'] = pd.to_numeric(df['User_Score'], errors='coerce')
+
+    # 2. IMPUTAZIONE INTELLIGENTE
+    # Riempiamo i valori numerici mancanti con la mediana del GENERE di appartenenza
+    numeric_cols_to_impute = ['Critic_Score', 'Critic_Count', 'User_Score', 'User_Count']
+    for col in numeric_cols_to_impute:
+        df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(x.median()))
+        # Fallback globale se il genere ha solo NaN
+        df[col] = df[col].fillna(df[col].median())
+
+    # Riempiamo i categorici mancanti con la moda (valore più frequente) del GENERE
+    cat_cols_to_impute = ['Developer', 'Rating']
+    for col in cat_cols_to_impute:
+        # Funzione helper per la moda
+        def fill_mode(x):
+            m = x.mode()
+            return m[0] if not m.empty else np.nan
+        
+        df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(fill_mode(x)))
+        df[col] = df[col].fillna(df[col].mode()[0])
+
+    # 3. Creazione Target e Feature Engineering
     df['is_HIT'] = (df['Global_Sales'] >= 1.0).astype(int)
     
-    return df
-
-df = load_data()
-
-# --- SIDEBAR: FILTRI GLOBALI ---
-st.sidebar.header("🔍 Filtri Dashboard")
-st.sidebar.write("Definisci il contesto dell'analisi.")
-
-min_year = int(df['Year_of_Release'].min())
-max_year = int(df['Year_of_Release'].max())
-
-selected_years = st.sidebar.slider("Periodo Temporale", min_year, max_year, (min_year, max_year))
-selected_platform = st.sidebar.multiselect("Piattaforma", df['Platform'].unique(), default=df['Platform'].unique()[:5])
-selected_genre = st.sidebar.multiselect("Genere", df['Genre'].unique(), default=df['Genre'].unique())
-
-# Filtro del dataset principale
-df_filtered = df[
-    (df['Year_of_Release'] >= selected_years[0]) &
-    (df['Year_of_Release'] <= selected_years[1]) &
-    (df['Platform'].isin(selected_platform)) &
-    (df['Genre'].isin(selected_genre))
-]
-
-# --- LAYOUT PRINCIPALE ---
-st.title("🎮 Executive Dashboard: Video Game Sales Analysis")
-st.markdown("Analisi strategica per supportare decisioni su investimenti e sviluppo prodotti.")
-
-# --- SEZIONE KPI ---
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Vendite Totali (M)", f"{df_filtered['Global_Sales'].sum():,.1f} M")
-with col2:
-    st.metric("Giochi Analizzati", f"{len(df_filtered)}")
-with col3:
-    avg_critic = df_filtered['Critic_Score'].mean()
-    st.metric("Media Critic Score", f"{avg_critic:.1f}" if not pd.isna(avg_critic) else "N/A")
-with col4:
-    hit_rate = (df_filtered['is_HIT'].sum() / len(df_filtered) * 100) if len(df_filtered) > 0 else 0
-    st.metric("% HIT (>1M Copie)", f"{hit_rate:.1f}%")
-
-st.markdown("---")
-
-# --- TABS PER LE VARIE ANALISI ---
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Trend Mercato", "⭐ Recensioni vs Vendite", "🤖 Predittore HIT (ML)", "💬 Smart Query"])
-
-# TAB 1: PIATTAFORME E GENERI NEL TEMPO
-with tab1:
-    st.subheader("Performance Catalogo: Generi e Piattaforme")
-    
-    # Grafico 1: Trend temporale per Genere
-    sales_over_time = df_filtered.groupby(['Year_of_Release', 'Genre'])['Global_Sales'].sum().reset_index()
-    fig_trend = px.area(sales_over_time, x='Year_of_Release', y='Global_Sales', color='Genre',
-                        title="Evoluzione delle Vendite Globali per Genere",
-                        labels={'Global_Sales': 'Vendite (M)', 'Year_of_Release': 'Anno'})
-    st.plotly_chart(fig_trend, use_container_width=True)
-    st.caption(f"💡 **Insight:** Mostra quali generi hanno dominato il mercato negli anni selezionati ({selected_years[0]}-{selected_years[1]}). Le aree più ampie indicano i generi trainanti.")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        # Grafico 2: Top Piattaforme
-        platform_sales = df_filtered.groupby('Platform')['Global_Sales'].sum().reset_index().sort_values('Global_Sales', ascending=False)
-        fig_bar = px.bar(platform_sales.head(10), x='Global_Sales', y='Platform', orientation='h',
-                         title="Top 10 Piattaforme per Vendite Totali",
-                         color='Global_Sales', color_continuous_scale='Viridis')
-        st.plotly_chart(fig_bar, use_container_width=True)
-        st.caption("💡 **Insight:** Identifica le piattaforme storicamente più redditizie nel periodo selezionato.")
-    
-    with col_b:
-        # Note sui dati
-        st.info("**Nota sui dati:** Le vendite sono espresse in Milioni di copie. I dati mancanti sugli anni di rilascio sono stati esclusi dai grafici temporali.")
-
-# TAB 2: RECENSIONI VS SUCCESSO
-with tab2:
-    st.subheader("Impatto delle Recensioni sul Successo Commerciale")
-    
-    # Preparazione dati (rimozione NaN per questo plot)
-    df_reviews = df_filtered.dropna(subset=['Critic_Score', 'Global_Sales'])
-    
-    if len(df_reviews) > 0:
-        fig_scatter = px.scatter(df_reviews, x='Critic_Score', y='Global_Sales', 
-                                 size='Global_Sales', color='Genre', hover_name='Name',
-                                 log_y=True, trendline="ols",
-                                 title="Correlazione: Punteggio Critica vs Vendite Globali (Scala Log)",
-                                 labels={'Critic_Score': 'Punteggio Metacritic (0-100)', 'Global_Sales': 'Vendite Globali (Scala Log)'})
-        st.plotly_chart(fig_scatter, use_container_width=True)
-        st.caption("💡 **Insight:** Ogni punto è un gioco. La linea di tendenza mostra se voti più alti corrispondono a maggiori vendite. La scala Logaritmica (asse Y) è usata per gestire la grande disparità tra mega-hit e giochi di nicchia.")
-    else:
-        st.warning("Dati insufficienti su Critic Score per il periodo/filtri selezionati.")
-
-# TAB 3: MODELLO ML
-with tab3:
-    st.subheader("Prototipo ML: Previsione Probabilità 'HIT'")
-    st.markdown("""
-    **Obiettivo Business:** Stimare la probabilità che un *nuovo concept* venda **≥ 1 Milione di copie** (HIT).
-    
-    Questo modello usa dati storici (Genere, Piattaforma, Punteggio stimato) per supportare il Green-light process.
-    """)
-    
-    # Training del modello "al volo" (per semplicità del prototipo)
-    # 1. Prep Dati ML
-    ml_data = df.dropna(subset=['Critic_Score', 'Genre', 'Platform']).copy()
+    # Label Encoding per l'ML (creiamo colonne numeriche per Genre e Platform)
     le_genre = LabelEncoder()
     le_platform = LabelEncoder()
-    ml_data['Genre_Code'] = le_genre.fit_transform(ml_data['Genre'])
-    ml_data['Platform_Code'] = le_platform.fit_transform(ml_data['Platform'])
+    df['Genre_Code'] = le_genre.fit_transform(df['Genre'])
+    df['Platform_Code'] = le_platform.fit_transform(df['Platform'])
     
-    X = ml_data[['Genre_Code', 'Platform_Code', 'Critic_Score']]
-    y = ml_data['is_HIT']
+    return df, le_genre, le_platform
+
+@st.cache_resource
+def train_model(df, feature_cols, target_col, max_depth, n_estimators, min_samples_leaf):
+    """Allena il modello Random Forest e calcola metriche."""
+    X = df[feature_cols]
+    y = df[target_col]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    model = RandomForestClassifier(
+        max_depth=max_depth,
+        n_estimators=n_estimators,
+        min_samples_leaf=min_samples_leaf,
+        random_state=42,
+        class_weight="balanced"
+    )
+    model.fit(X_train, y_train)
+
+    y_pred_train = model.predict(X_train)
+    y_pred_test = model.predict(X_test)
+
+    acc_train = accuracy_score(y_train, y_pred_train)
+    acc_test = accuracy_score(y_test, y_pred_test)
+
+    # Baseline: predire sempre la classe maggioritaria
+    majority_class = y_test.value_counts().idxmax()
+    baseline_acc = accuracy_score(y_test, [majority_class]*len(y_test))
+
+    metrics = {
+        "acc_train": acc_train,
+        "acc_test": acc_test,
+        "baseline_acc": baseline_acc
+    }
     
-    # Modello semplice
-    model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-    model.fit(X, y)
+    feature_importances = pd.Series(
+        model.feature_importances_, index=feature_cols
+    ).sort_values(ascending=True)
+
+    return model, metrics, feature_importances
+
+# --- CARICAMENTO ---
+df, le_genre, le_platform = load_and_clean_data()
+
+# --- SIDEBAR: SETTINGS & FILTRI ---
+with st.sidebar:
+    st.header("⚙️ Configurazione")
     
-    # Form Input Utente
-    with st.form("prediction_form"):
-        st.write("### 📝 Scheda Nuovo Prodotto")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            in_genre = st.selectbox("Genere Previsto", le_genre.classes_)
-        with c2:
-            in_platform = st.selectbox("Piattaforma Target", le_platform.classes_)
-        with c3:
-            in_score = st.slider("Target Metacritic Score (Atteso)", 0, 100, 75)
+    st.subheader("Iperparametri ML")
+    hyp_depth = st.slider("Max Depth", 1, 20, 10)
+    hyp_est = st.slider("N Estimators", 10, 200, 100)
+    hyp_leaf = st.slider("Min Samples Leaf", 1, 10, 2)
+    
+    st.markdown("---")
+    st.subheader("Filtri Dati (Dashboard)")
+    all_genres = df['Genre'].unique()
+    sel_genres = st.multiselect("Generi", all_genres, default=all_genres[:5])
+    
+    min_y, max_y = int(df['Year_of_Release'].min()), int(df['Year_of_Release'].max())
+    sel_years = st.slider("Anni", min_y, max_y, (2000, max_y))
+
+# Filtro dati per la dashboard business (non per l'ML training che usa tutto lo storico)
+df_filtered = df[
+    (df['Genre'].isin(sel_genres if sel_genres else all_genres)) & 
+    (df['Year_of_Release'] >= sel_years[0]) & 
+    (df['Year_of_Release'] <= sel_years[1])
+]
+
+# --- MAIN PAGE STRUCTURE ---
+st.title("🎮 Executive Dashboard & ML Analysis")
+st.markdown("Analisi strategica delle vendite videogiochi e modello predittivo di successo commerciale.")
+
+tab_biz, tab_ml, tab_nlq = st.tabs(["📊 Business Dashboard", "🤖 ML & Analisi Profonda", "💬 Smart Query"])
+
+# ==============================================================================
+# TAB 1: BUSINESS DASHBOARD (Richieste 1 e 2)
+# ==============================================================================
+with tab_biz:
+    # KPI
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Vendite Totali", f"{df_filtered['Global_Sales'].sum():,.1f} M")
+    c2.metric("Titoli Analizzati", len(df_filtered))
+    c3.metric("% HIT (>1M)", f"{(df_filtered['is_HIT'].mean()*100):.1f}%")
+    c4.metric("Avg Critic Score", f"{df_filtered['Critic_Score'].mean():.1f}")
+    
+    st.markdown("---")
+    
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        st.subheader("Performance Catalogo")
+        # Trend temporale (Area chart)
+        sales_trend = df_filtered.groupby(['Year_of_Release', 'Genre'])['Global_Sales'].sum().reset_index()
+        fig_trend = px.area(sales_trend, x='Year_of_Release', y='Global_Sales', color='Genre',
+                            title="Trend Vendite per Genere (Stacked)")
+        st.plotly_chart(fig_trend, use_container_width=True)
+        st.caption("Mostra l'evoluzione dei gusti di mercato nel tempo. Aree più grandi = generi dominanti.")
+
+    with col_chart2:
+        st.subheader("Recensioni vs Vendite")
+        # Scatter plot (Log scale)
+        fig_scatter = px.scatter(df_filtered, x='Critic_Score', y='Global_Sales', color='Genre',
+                                 log_y=True, hover_name='Name', title="Critic Score vs Global Sales (Log Scale)")
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.caption("Relazione tra qualità percepita e successo. Asse Y logaritmico per evidenziare le differenze tra HIT e nicchia.")
+
+# ==============================================================================
+# TAB 2: ML DEMO (Ispirato a heart_ml_app.py)
+# ==============================================================================
+with tab_ml:
+    st.header("🧠 Modello Predittivo: Probabilità di HIT")
+    st.caption("Il modello stima se un gioco venderà ≥ 1M di copie basandosi su caratteristiche note e punteggi attesi.")
+    
+    # --- PANORAMICA DATASET ML ---
+    st.subheader("🔍 Panoramica Dataset ML")
+    col_a, col_b, col_c = st.columns(3)
+    n_games = len(df)
+    hit_rate = df['is_HIT'].mean()
+    
+    col_a.metric("Totale Giochi (Dataset Completo)", n_games)
+    col_b.metric("Hit Rate (Vendite ≥ 1M)", f"{hit_rate:.1%}")
+    col_c.metric("Rapporto Classi", f"{(1-hit_rate):.1%} Flop / {hit_rate:.1%} Hit")
+    
+    with st.expander("Mostra prime righe del dataset (con imputazione applicata)"):
+        st.dataframe(df[['Name', 'Genre', 'Platform', 'Critic_Score', 'User_Score', 'is_HIT']].head())
+
+    # --- CHALLENGE SECTION ---
+    st.markdown("---")
+    with st.expander("🎯 Challenge: Esplora le Feature", expanded=True):
+        feature_options = ['Critic_Score', 'User_Score', 'Year_of_Release', 'Critic_Count', 'User_Count']
+        selected_feat = st.selectbox("Seleziona variabile da analizzare", feature_options)
+        
+        c_d, c_e = st.columns(2)
+        
+        # Plot 1: Istogramma
+        fig_hist = px.histogram(df, x=selected_feat, color="is_HIT", barmode="overlay",
+                                title=f"Distribuzione di {selected_feat}",
+                                labels={'is_HIT': 'Successo (1=Hit)'})
+        c_d.plotly_chart(fig_hist, use_container_width=True)
+        
+        # Plot 2: Violin Plot
+        fig_violin = px.violin(df, y=selected_feat, x="is_HIT", color="is_HIT", box=True,
+                               title=f"{selected_feat} vs Target Hit",
+                               labels={'is_HIT': 'Classe (0=No, 1=Hit)'})
+        c_e.plotly_chart(fig_violin, use_container_width=True)
+        
+        # Stats
+        st.markdown("#### Statistiche Descrittive")
+        st.dataframe(df.groupby('is_HIT')[selected_feat].describe(), use_container_width=True)
+        st.caption("Osserva se media e distribuzione cambiano significativamente tra giochi 'Hit' (1) e non (0).")
+
+    # --- TRAINING & PERFORMANCE ---
+    st.subheader("📏 Performance del Modello")
+    
+    # Feature usate per il training
+    ML_FEATURES = ['Genre_Code', 'Platform_Code', 'Critic_Score', 'User_Score', 'Year_of_Release']
+    FEATURE_LABELS = {
+        'Genre_Code': 'Genere', 'Platform_Code': 'Piattaforma', 
+        'Critic_Score': 'Punteggio Critica', 'User_Score': 'Punteggio Utenti', 
+        'Year_of_Release': 'Anno Uscita'
+    }
+    
+    model, metrics, feat_imp = train_model(df, ML_FEATURES, 'is_HIT', hyp_depth, hyp_est, hyp_leaf)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Accuracy Train", f"{metrics['acc_train']:.2%}")
+    col2.metric("Accuracy Test", f"{metrics['acc_test']:.2%}")
+    col3.metric("Baseline (Moda)", f"{metrics['baseline_acc']:.2%}")
+    
+    # Check Overfitting
+    gap = metrics['acc_train'] - metrics['acc_test']
+    if gap > 0.15:
+        st.warning(f"⚠️ Possibile Overfitting (Gap: {gap:.1%}). Prova a ridurre Max Depth o aumentare Min Samples Leaf.")
+    else:
+        st.success("✅ Il modello generalizza bene (Gap contenuto tra Train e Test).")
+
+    # --- CORRELAZIONI E IMPORTANZA ---
+    st.subheader("📈 Analisi Fattori di Successo")
+    col_corr, col_imp = st.columns(2)
+    
+    with col_corr:
+        st.markdown("**Matrice di Correlazione (Feature Numeriche)**")
+        # Usiamo solo feature numeriche vere + target
+        corr_cols = ['Critic_Score', 'User_Score', 'Critic_Count', 'User_Count', 'Global_Sales', 'is_HIT']
+        corr = df[corr_cols].corr()
+        
+        fig_corr, ax = plt.subplots(figsize=(5,4))
+        sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax)
+        st.pyplot(fig_corr)
+        
+    with col_imp:
+        st.markdown("**Importanza Variabili (Random Forest)**")
+        # Mappiamo i nomi tecnici a label leggibili per il grafico
+        feat_imp_renamed = feat_imp.rename(index=FEATURE_LABELS)
+        
+        fig_imp, ax_imp = plt.subplots(figsize=(5,4))
+        feat_imp_renamed.plot(kind="barh", color="#ff4b4b", ax=ax_imp)
+        ax_imp.set_xlabel("Importanza (Gini Impurity)")
+        st.pyplot(fig_imp)
+
+    # --- FOCUS BOXPLOT ---
+    top_feature_tech = feat_imp.idxmax()
+    top_feature_label = FEATURE_LABELS[top_feature_tech]
+    
+    st.markdown("---")
+    st.markdown(f"##### 📦 Focus Feature Più Importante: {top_feature_label}")
+    
+    fig_box, ax_box = plt.subplots(figsize=(8, 3))
+    sns.boxplot(data=df, x='is_HIT', y=top_feature_tech, hue='is_HIT', palette="Set2", ax=ax_box)
+    ax_box.set_xticklabels(["Non Hit (<1M)", "Hit (≥1M)"])
+    ax_box.set_xlabel("Successo Commerciale")
+    ax_box.set_ylabel(top_feature_label)
+    st.pyplot(fig_box)
+
+    # --- PREDIZIONE UTENTE ---
+    st.subheader("🧪 Simulatore Lancio Prodotto")
+    st.markdown("Inserisci le caratteristiche del gioco ipotetico:")
+    
+    with st.form("sim_form"):
+        c_f1, c_f2, c_f3 = st.columns(3)
+        with c_f1:
+            in_genre = st.selectbox("Genere", le_genre.classes_)
+            in_plat = st.selectbox("Piattaforma", le_platform.classes_)
+        with c_f2:
+            in_critic = st.slider("Critic Score (Atteso)", 0, 100, 75)
+            in_user = st.slider("User Score (Atteso)", 0.0, 10.0, 7.5)
+        with c_f3:
+            in_year = st.number_input("Anno Lancio", 2000, 2030, 2024)
             
-        submitted = st.form_submit_button("Calcola Probabilità di Successo")
+        submitted = st.form_submit_button("Predici Successo")
         
         if submitted:
             # Encoding input
-            try:
-                g_code = le_genre.transform([in_genre])[0]
-                p_code = le_platform.transform([in_platform])[0]
+            g_code = le_genre.transform([in_genre])[0]
+            p_code = le_platform.transform([in_plat])[0]
+            
+            input_data = pd.DataFrame([[g_code, p_code, in_critic, in_user, in_year]], columns=ML_FEATURES)
+            proba = model.predict_proba(input_data)[0][1] # Prob classe 1
+            
+            st.markdown("### Risultato Previsione")
+            col_res1, col_res2 = st.columns([1, 2])
+            
+            with col_res1:
+                if proba > 0.5:
+                    st.success("🟢 PROBABILE HIT")
+                else:
+                    st.error("🔴 RISCHIO FLOP")
+                st.metric("Probabilità >1M Copie", f"{proba:.1%}")
                 
-                # Predizione
-                proba = model.predict_proba([[g_code, p_code, in_score]])[0][1] # Probabilità classe 1 (HIT)
-                
-                st.markdown("### Risultato Predizione")
-                col_res1, col_res2 = st.columns([1, 3])
-                
-                with col_res1:
-                    if proba >= 0.7:
-                        st.success(f"Probabilità: {proba:.0%}")
-                        st.markdown("🟢 **HIGH POTENTIAL**")
-                    elif proba >= 0.4:
-                        st.warning(f"Probabilità: {proba:.0%}")
-                        st.markdown("🟡 **MEDIUM RISK**")
-                    else:
-                        st.error(f"Probabilità: {proba:.0%}")
-                        st.markdown("🔴 **LOW POTENTIAL**")
-                
-                with col_res2:
-                    st.progress(proba)
-                    st.info(f"Un gioco '{in_genre}' su '{in_platform}' con score {in_score} ha il {proba:.0%} di chance di superare 1M copie basandosi sullo storico.")
-                    
-            except Exception as e:
-                st.error("Errore nella codifica dei dati (valore mai visto nel training set).")
+            with col_res2:
+                st.progress(proba)
+                st.info(f"Un gioco **{in_genre}** su **{in_plat}** con score **{in_critic}** ha il {proba:.0%} di chance di diventare un Hit.")
 
-# TAB 4: NATURAL LANGUAGE QUERY (Simulato)
-with tab4:
-    st.subheader("Interrogazione Rapida (NLQ)")
-    st.markdown("Fai domande semplici al dataset (es. *'Nintendo Sports sales'*, *'Shooter 2010'*).")
-    
-    query = st.text_input("Cosa vuoi sapere?", placeholder="Es: Platform Action Nintendo...")
+# ==============================================================================
+# TAB 3: NLQ (Richiesta 4)
+# ==============================================================================
+with tab_nlq:
+    st.subheader("Interrogazione in Linguaggio Naturale (Keywords)")
+    query = st.text_input("Cerca nel catalogo (es. 'Nintendo Racing 2008')", "")
     
     if query:
-        # Logica "Naive" di ricerca keywords (senza API costose)
         keywords = query.lower().split()
-        mask = pd.Series([True] * len(df))
-        
-        for word in keywords:
-            # Cerca la parola in colonne stringa o anni
+        mask = pd.Series([True]*len(df))
+        for k in keywords:
             mask = mask & (
-                df['Name'].str.lower().str.contains(word) |
-                df['Platform'].str.lower().str.contains(word) |
-                df['Genre'].str.lower().str.contains(word) |
-                df['Publisher'].str.lower().str.contains(word) |
-                df['Year_of_Release'].astype(str).str.contains(word)
+                df['Name'].str.lower().str.contains(k) | 
+                df['Platform'].str.lower().str.contains(k) |
+                df['Genre'].str.lower().str.contains(k) |
+                df['Publisher'].astype(str).str.lower().str.contains(k) |
+                df['Year_of_Release'].astype(str).str.contains(k)
             )
-            
         res = df[mask]
-        
-        if not res.empty:
-            st.write(f"Trovati **{len(res)}** risultati:")
-            st.dataframe(res[['Name', 'Platform', 'Year_of_Release', 'Global_Sales', 'Publisher']].head(10))
-            st.caption("Mostrati i primi 10 risultati per rilevanza testuale.")
-        else:
-            st.warning("Nessun risultato trovato. Prova con parole chiave più generiche.")
+        st.write(f"Trovati {len(res)} risultati:")
+        st.dataframe(res.head(20))
