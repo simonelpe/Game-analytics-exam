@@ -13,3 +13,10 @@ DATA_DIR = Path("vgsales_clean.csv")
 def load_data() -> pd.DataFrame:
     game_sales = pd.read_csv(DATA_DIR)
     return game_sales
+
+'''
+Capire su quali piattaforme e generi ha funzionato meglio il catalogo nel tempo.
+Valutare quanto contano recensioni e rating sul successo commerciale di un gioco.
+Avere un prototipo di modello ML che aiuti a stimare la probabilità che un nuovo gioco diventi un “HIT” (es. ≥ 1M copie).
+(Nice to have) Un modo rapido per interrogare i dati in linguaggio naturale.
+'''
