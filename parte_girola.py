@@ -42,13 +42,11 @@ def load_data() -> pd.DataFrame:
 # ----TRAIN MODEL----
 @st.cache_resource
 def train_model(df: pd.DataFrame,  max_depth, min_samples_leaf):
-    """
-    Allena un RandomForest e calcola:
-    - accuracy su train e test
-    - baseline (classe più frequente)
-    - importanza delle feature
-    """
-    df["Sales_Class"] = pd.qcut(df["Global_Sales"], q=3, labels=["Flop", "Mid", "Hit"])
+
+    bins = [-float('inf'), 0.5, 1, float('inf')]
+    labels = ["Flop", "Mid", "Hit"]
+
+    df["Sales_Class"] = pd.cut(df["Global_Sales"], bins=bins, labels=labels)
 
 
     X = df[FEATURE_COLS]
