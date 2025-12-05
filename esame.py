@@ -138,6 +138,8 @@ if not df.empty:
         print(df["Year_of_Release"].unique())
         st.header("Filtri grafici")
 
+        st.header("Filtri base")
+
         year_min = int(df["Year_of_Release"].min())
         year_max = int(df["Year_of_Release"].max())
         platform_list = sorted(df["Platform"].unique())
@@ -341,7 +343,7 @@ if not df.empty:
         col1, col2 = st.columns(2)
         col1.metric("Accuracy su train", f"{metrics['acc_train']:.2%}")
         col2.metric("Accuracy su test", f"{metrics['acc_test']:.2%}")
-
+    
         st.markdown("---")
         st.subheader("🧪 Simula il successo di un nuovo gioco")
 
