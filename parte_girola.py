@@ -104,13 +104,3 @@ col1.metric("Accuracy su train", f"{metrics['acc_train']:.2%}")
 col2.metric("Accuracy su test", f"{metrics['acc_test']:.2%}")
 
 
-
-"""
-Il management vuole usare questi dati per:
-
-Capire su quali piattaforme e generi ha funzionato meglio il catalogo nel tempo.
-Valutare quanto contano recensioni e rating sul successo commerciale di un gioco.
-Avere un prototipo di modello ML che aiuti a stimare la probabilità che un nuovo gioco diventi un “HIT” (es. ≥ 1M copie).
-(Nice to have) Un modo rapido per interrogare i dati in linguaggio naturale.
-"""
-
