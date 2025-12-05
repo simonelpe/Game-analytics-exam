@@ -18,12 +18,19 @@ DATA_DIR = Path("data.csv")
 # Colonne feature
 FEATURE_COLS = ["Platform", "Year_of_Release", "Genre", "Publisher" ,"Critic_Score", "Critic_Count", "User_Score", "User_Count", "Developer", "Rating"]
 
+RANKED_BY_LIST   = ['EU_Sales','NA_Sales','JP_Sales','Other_Sales','Global_Sales','Critic_Score','User_Score']
+
 # Etichette feature
 FEATURE_LABELS = {
     "Platform": "Piattaforma",
     "Year_of_Release": "Anno di rilascio",
     "Genre": "Genere",
     "Publisher": "Distributore",
+    'EU_Sales': 'Vendite in Europa',
+    'NA_Sales': 'Vendite in Nord America',
+    'JP_Sales': 'Vendite in Giappone',
+    'Other_Sales': 'Vendite nel resto del mondo',
+    'Global_Sales': 'Vendite globali',
     "Critic_Score": "Valutazione critica",
     "Critic_Count": "Numero di recensioni critica",
     "User_Score": "Valutazione utenti",
@@ -35,11 +42,41 @@ FEATURE_LABELS = {
 # Etichetta target
 TARGET_LABEL = "Numero di copie vendute globalmente"
 
+
+
 # ----LOAD DATA----
 @st.cache_data
 def load_data() -> pd.DataFrame:
     game_sales = pd.read_csv(DATA_DIR)
     return game_sales
+
+
+
+# ----UTILITY FUNSCTIONS----
+def apply_filters(
+    df: pd.DataFrame,
+    year_start: int,
+    year_end: int,
+    platform: str = None, 
+    genre: str = None,
+    ranked_by: str = 'Global_Sales',
+) -> pd.DataFrame:
+    
+    df_filtered = df.copy()
+
+    if platform:
+        df_filtered = df_filtered[df_filtered["Platform"].isin(platform)]
+
+    if genre:
+        df_filtered = df_filtered[df_filtered["Genre"].isin(genre)]
+
+    df_filtered = df_filtered[df_filtered["Year_of_Release"].between(year_start, year_end)]
+
+    df_filtered.sort_values(ranked_by, ascending=False, inplace=True)
+
+    return df_filtered
+
+
 
 # ----TRAIN MODEL----
 @st.cache_resource
@@ -89,17 +126,62 @@ def train_model(df: pd.DataFrame,  max_depth, min_samples_leaf):
     return model, metrics
 
 
+
 # ---------------- MAIN APP ---------------- 
 df = load_data()
 if not df.empty:
 
-    # SIDEBAR -------------------------------------------------
-    st.sidebar.header("Filtri base")
-    max_depth = st.sidebar.slider("max_depth", min_value=1, max_value=10, value=5)
-    min_samples_leaf = st.sidebar.slider("min_samples_leaf", min_value=1, max_value=10, value=5)
+    # ---------------- SIDEBAR ----------------
+    with st.sidebar:
+
+        print(df["Year_of_Release"].dtype)  # tipo della colonna
+        print(df["Year_of_Release"].unique())
+        st.header("Filtri grafici")
+
+        st.header("Filtri base")
+
+        year_min = int(df["Year_of_Release"].min())
+        year_max = int(df["Year_of_Release"].max())
+        platform_list = sorted(df["Platform"].unique())
+        genre_list = sorted(df["Genre"].dropna().unique())
+
+        year_start, year_end = st.slider(
+            "Intervallo di anni",
+            min_value=year_min,
+            max_value=year_max,
+            value=(year_min, year_max),
+            step=1,
+        )
+
+        selected_platform = st.sidebar.multiselect(
+            "COnsoles (opzionale)",
+            platform_list,
+            default=[],
+        )
+
+        selected_genre = st.multiselect(
+            "Generi (opzionale)",
+            genre_list,
+            default=[],
+        )
+
+        ranked_by = st.selectbox('Ordianto per', RANKED_BY_LIST)
+
+        df_filtered = apply_filters(
+            df=df,
+            year_start=year_start,
+            year_end=year_end,
+            platform=selected_platform, 
+            genre=selected_genre,
+            ranked_by=ranked_by
+        )
+
+        with st.expander("Filtri modello"):
+            max_depth = st.slider("max_depth", min_value=1, max_value=10, value=5)
+            min_samples_leaf = st.slider("min_samples_leaf", min_value=1, max_value=10, value=5)
+            model, metrics = train_model(df,  max_depth, min_samples_leaf)
 
 
-    model, metrics = train_model(df,  max_depth, min_samples_leaf)
 
     # ---------------------------------------------------------
     # SEZIONE KPI (WIDGET)
@@ -119,6 +201,8 @@ if not df.empty:
 
     st.markdown("---")
 
+
+
     # ---------------------------------------------------------
     # DROPDOWN (EXPANDER) PER HEAD DATASET
     # ---------------------------------------------------------
@@ -126,6 +210,8 @@ if not df.empty:
         st.dataframe(df.head())
 
     st.markdown("---")
+
+
 
     # ---------------------------------------------------------
     # TAB (PAGINE NELLA STESSA SCHERMATA)
@@ -136,13 +222,74 @@ if not df.empty:
     # Contenuto Tab 1
     with tab_grafici:
         st.header("Sezione Grafici")
-        # Placeholder grafico
-        st.info("Qui verranno visualizzati i grafici (Placeholder)")
+
+        df_platform = apply_filters(
+            df=df,
+            year_start=year_start,
+            year_end=year_end,
+            platform=selected_platform,
+            genre=selected_genre,
+        ).groupby(['Year_of_Release', 'Platform'])[ranked_by].sum().reset_index()
+
+        df_genre = apply_filters(
+            df=df,
+            year_start=year_start,
+            year_end=year_end,
+            platform=selected_platform,
+            genre=selected_genre,
+        ).groupby(['Year_of_Release', 'Genre'])[ranked_by].sum().reset_index()
         
-        # Esempio: un grafico vuoto o semplice per mostrare dove andrebbe
-        chart_placeholder = st.empty()
-        # Se volessi mettere un grafico vero in futuro:
-        # st.bar_chart(df['Global_Sales'].head(10))
+        first_bar = px.bar(
+            df_filtered.head(10),
+            x="Name",
+            y=ranked_by,
+            title="Top 10 Giochi secondo i filtri per"
+        )
+        st.plotly_chart(first_bar, height=500, use_container_width=True)
+
+        st.subheader("Trend di vendite per console")
+        col_a, col_b = st.columns(2)
+
+        platform_line = px.line(
+            df_platform, 
+            x='Year_of_Release', 
+            y=ranked_by,
+            color='Platform',
+            title="Singoli")
+        platform_line.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
+        col_a.plotly_chart(platform_line, use_container_width=True)
+
+        platform_area = px.area(
+            df_platform, 
+            x='Year_of_Release', 
+            y=ranked_by,
+            color='Platform',
+            title="Impilati")
+        platform_area.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
+        col_b.plotly_chart(platform_area, use_container_width=True)
+
+
+
+        st.subheader("Trend di vendite per generi")
+        col_c, col_d = st.columns(2)
+
+        genre_line = px.line(
+            df_genre, 
+            x='Year_of_Release', 
+            y=ranked_by,
+            color='Genre',
+            title="Singoli")
+        genre_line.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
+        col_c.plotly_chart(genre_line, use_container_width=True)
+
+        genre_area = px.area(
+            df_genre, 
+            x='Year_of_Release', 
+            y=ranked_by,
+            color='Genre',
+            title="Impilati")
+        genre_area.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
+        col_d.plotly_chart(genre_area, use_container_width=True)
 
     # Contenuto Tab 2
     with tab_modello:
