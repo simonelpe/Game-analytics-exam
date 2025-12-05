@@ -43,7 +43,7 @@ def load_data() -> pd.DataFrame:
 @st.cache_resource
 def train_model(df: pd.DataFrame,  max_depth, min_samples_leaf):
 
-    bins = [-float('inf'), 0.5, 1, float('inf')]
+    bins = [-float('inf'), 0.1, 1, float('inf')]
     labels = ["Flop", "Mid", "Hit"]
 
     df["Sales_Class"] = pd.cut(df["Global_Sales"], bins=bins, labels=labels)
