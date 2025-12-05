@@ -293,6 +293,47 @@ if not df.empty:
         genre_area.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
         col_d.plotly_chart(genre_area, use_container_width=True)
 
+        dx, sx = st.columns(2)
+
+        fig = px.scatter(
+            df_filtered,
+            x='Critic_Score',
+            y='Global_Sales',
+            color_discrete_sequence=['blue'],
+            labels={'Critic_Score':'Critic Score', 'Global_Sales':'Global Sales (milioni)'},
+            title='Impatto delle Recensioni sul Successo Commerciale',
+            hover_data=['Name','Platform']
+        )
+
+        fig2 = px.scatter(
+            df_filtered,
+            x='User_Score',
+            y='Global_Sales',
+            color_discrete_sequence=['orange'],
+            hover_data=['Name','Platform']
+        )
+
+        dx, sx = st.columns(2)
+        with dx:
+            st.plotly_chart(fig, use_container_width=True)
+        with sx:
+            st.plotly_chart(fig2, use_container_width=True)
+
+        threshold = df_filtered['Global_Sales'].quantile(0.95)
+        df_threshold = df_filtered[df_filtered['Global_Sales'] <= threshold]
+
+        fig_rating = px.box(
+            df_threshold,
+            x='Rating',
+            y='Global_Sales',
+            points='all',
+            color='Rating',
+            title='Distribuzione delle Vendite Globali per Rating (outlier rimossi)',
+            labels={'Global_Sales':'Global Sales (milioni)', 'Rating':'Rating'}
+        )
+
+        st.plotly_chart(fig_rating, use_container_width=True)
+
     # TAB 2
     with tab_modello:
         st.subheader("Metriche del modello")
