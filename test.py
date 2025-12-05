@@ -18,40 +18,51 @@ st.set_page_config(page_title="Game Sales Executive Dashboard", layout="wide", p
 def load_and_clean_data():
     df = pd.read_csv('data.csv')
 
-    # 1. Pulizia di base
+    # --- CORREZIONE GESTIONE DATE ---
+    # 1. Convertiamo la colonna in oggetti datetime (gestisce sia '2006' che '2006-01-01' che errori)
+    # errors='coerce' trasforma valori come 'tbd' o 'N/A' in NaT (Not a Time)
+    df['Year_of_Release'] = pd.to_datetime(df['Year_of_Release'], errors='coerce')
+    
+    # 2. Estraiamo solo l'anno (es. 2006)
+    df['Year_of_Release'] = df['Year_of_Release'].dt.year
+
+    # 3. Rimuoviamo le righe dove l'anno o il nome non sono validi
     df = df.dropna(subset=['Year_of_Release', 'Name'])
+    
+    # 4. Ora è sicuro convertire in intero (rimuove i decimali come 2006.0)
     df['Year_of_Release'] = df['Year_of_Release'].astype(int)
     
+    # --- FINE CORREZIONE ---
+
     # Conversione User_Score in numerico (gestione 'tbd')
     df['User_Score'] = pd.to_numeric(df['User_Score'], errors='coerce')
 
     # 2. IMPUTAZIONE INTELLIGENTE
-    # Riempiamo i valori numerici mancanti con la mediana del GENERE di appartenenza
     numeric_cols_to_impute = ['Critic_Score', 'Critic_Count', 'User_Score', 'User_Count']
     for col in numeric_cols_to_impute:
-        df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(x.median()))
-        # Fallback globale se il genere ha solo NaN
-        df[col] = df[col].fillna(df[col].median())
+        # Verifica se la colonna esiste per evitare errori se il CSV cambia
+        if col in df.columns:
+            df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(x.median()))
+            df[col] = df[col].fillna(df[col].median())
 
-    # Riempiamo i categorici mancanti con la moda (valore più frequente) del GENERE
     cat_cols_to_impute = ['Developer', 'Rating']
     for col in cat_cols_to_impute:
-        # Funzione helper per la moda
-        def fill_mode(x):
-            m = x.mode()
-            return m[0] if not m.empty else np.nan
-        
-        df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(fill_mode(x)))
-        df[col] = df[col].fillna(df[col].mode()[0])
+        if col in df.columns:
+            def fill_mode(x):
+                m = x.mode()
+                return m[0] if not m.empty else "Unknown"
+            
+            df[col] = df.groupby('Genre')[col].transform(lambda x: x.fillna(fill_mode(x)))
+            df[col] = df[col].fillna("Unknown")
 
-    # 3. Creazione Target e Feature Engineering
+    # 3. Target e Feature Engineering
     df['is_HIT'] = (df['Global_Sales'] >= 1.0).astype(int)
     
-    # Label Encoding per l'ML (creiamo colonne numeriche per Genre e Platform)
     le_genre = LabelEncoder()
     le_platform = LabelEncoder()
-    df['Genre_Code'] = le_genre.fit_transform(df['Genre'])
-    df['Platform_Code'] = le_platform.fit_transform(df['Platform'])
+    # Convertiamo in stringa per sicurezza prima dell'encoding
+    df['Genre_Code'] = le_genre.fit_transform(df['Genre'].astype(str))
+    df['Platform_Code'] = le_platform.fit_transform(df['Platform'].astype(str))
     
     return df, le_genre, le_platform
 
