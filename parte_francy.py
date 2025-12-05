@@ -87,6 +87,8 @@ with st.sidebar:
         step=1,
     )
 
+    st.divider()
+
     selected_platform = st.sidebar.multiselect(
         "COnsoles (opzionale)",
         platform_list,

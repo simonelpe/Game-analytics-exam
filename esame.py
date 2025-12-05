@@ -174,10 +174,12 @@ if not df.empty:
             ranked_by=ranked_by
         )
 
-        with st.expander("Filtri modello"):
-            max_depth = st.slider("max_depth", min_value=1, max_value=10, value=5)
-            min_samples_leaf = st.slider("min_samples_leaf", min_value=1, max_value=10, value=5)
-            model, metrics = train_model(df,  max_depth, min_samples_leaf)
+        st.divider()
+
+        st.header("Filtri modello")
+        max_depth = st.slider("max_depth", min_value=1, max_value=10, value=5)
+        min_samples_leaf = st.slider("min_samples_leaf", min_value=1, max_value=10, value=5)
+        model, metrics = train_model(df,  max_depth, min_samples_leaf)
 
 
 
@@ -195,9 +197,7 @@ if not df.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Numero Giochi", f"{n_giochi}")
     col2.metric("Vendite Globali Totali", f"{tot_vendite:.2f} M")
-    col3.metric("% Giochi > 1MLN", f"{pct_over_1m:.1f}%")
-
-    st.markdown("---")
+    col3.metric("% Giochi con vendite > 1MLN", f"{pct_over_1m:.1f}%")
 
 
 
@@ -205,9 +205,9 @@ if not df.empty:
     # DROPDOWN (EXPANDER) PER HEAD DATASET
     # ---------------------------------------------------------
     with st.expander("📂 Clicca per vedere l'head del dataset (data.csv)"):
-        st.dataframe(df.head())
+        st.dataframe(df_filtered.head())
 
-    st.markdown("---")
+    st.divider()
 
 
 
@@ -217,7 +217,7 @@ if not df.empty:
     # Creazione delle tab
     tab_grafici, tab_modello = st.tabs(["📊 Pagina 1: Grafici", "🤖 Pagina 2: Modello"])
 
-    # TAB 1
+    # ---------------- GRAFICI - TAB 1 ----------------
     with tab_grafici:
         st.header("Sezione Grafici")
 
@@ -243,7 +243,11 @@ if not df.empty:
             y=ranked_by,
             title="Top 10 Giochi secondo i filtri per"
         )
+        first_bar.update_layout(xaxis_title="Nome", yaxis_title=FEATURE_LABELS[ranked_by])
         st.plotly_chart(first_bar, height=500, use_container_width=True)
+        
+
+        st.divider()
 
         st.subheader("Trend di vendite per console")
         col_a, col_b = st.columns(2)
@@ -266,7 +270,7 @@ if not df.empty:
         platform_area.update_layout(xaxis_title="Anno di rilascio", yaxis_title=FEATURE_LABELS[ranked_by])
         col_b.plotly_chart(platform_area, use_container_width=True)
 
-
+        st.divider()
 
         st.subheader("Trend di vendite per generi")
         col_c, col_d = st.columns(2)
