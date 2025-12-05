@@ -93,6 +93,7 @@ max_depth = st.sidebar.slider("max_depth", min_value=1, max_value=10, value=5)
 min_samples_leaf = st.sidebar.slider("min_samples_leaf", min_value=1, max_value=10, value=5)
 
 df = load_data()
+
 model, metrics = train_model(df,  max_depth, min_samples_leaf)
 
 
